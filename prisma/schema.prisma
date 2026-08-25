@@ -1,0 +1,112 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Tier {
+  FREE
+  PAID
+  BUSINESS
+}
+
+enum Role {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+enum QrType {
+  STATIC
+  DYNAMIC
+}
+
+model User {
+  id           String       @id @default(cuid())
+  email        String       @unique
+  name         String?
+  passwordHash String
+  tier         Tier         @default(FREE)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  memberships  TeamMember[]
+}
+
+model Team {
+  id          String       @id @default(cuid())
+  name        String
+  slug        String       @unique
+  tier        Tier         @default(FREE)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  members     TeamMember[]
+  qrCodes     QrCode[]
+  apiKeys     ApiKey[]
+}
+
+model TeamMember {
+  id        String   @id @default(cuid())
+  teamId    String
+  userId    String
+  role      Role     @default(MEMBER)
+  createdAt DateTime @default(now())
+
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, userId])
+}
+
+model ApiKey {
+  id         String    @id @default(cuid())
+  teamId     String
+  name       String
+  keyHash    String    @unique
+  keyPrefix  String
+  createdAt  DateTime  @default(now())
+  lastUsedAt DateTime?
+
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+}
+
+model QrCode {
+  id             String   @id @default(cuid())
+  teamId         String
+  shortCode      String   @unique
+  title          String?
+  type           QrType   @default(DYNAMIC)
+  destinationUrl String
+  logoUrl        String?
+  config         Json?    // Custom colors, error correction, module style
+  isActive       Boolean  @default(true)
+  scansCount     Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  team  Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  scans QrScan[]
+
+  @@index([shortCode])
+  @@index([teamId])
+}
+
+model QrScan {
+  id        String   @id @default(cuid())
+  qrCodeId  String
+  scannedAt DateTime @default(now())
+  ip        String?
+  country   String?
+  city      String?
+  device    String?  // Mobile, Desktop, Tablet
+  os        String?  // iOS, Android, macOS, Windows
+  browser   String?  // Chrome, Safari, Firefox
+  userAgent String?
+
+  qrCode QrCode @relation(fields: [qrCodeId], references: [id], onDelete: Cascade)
+
+  @@index([qrCodeId])
+  @@index([scannedAt])
+}
