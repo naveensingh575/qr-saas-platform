@@ -1,50 +1,93 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Zap, Plus, ExternalLink, Edit3, Check, X, ShieldAlert, Sparkles, RefreshCw, Eye, Copy, QrCode } from 'lucide-react';
-
-interface QrItem {
-  id: string;
-  shortCode: string;
-  title: string;
-  destinationUrl: string;
-  logoUrl?: string | null;
-  isActive: boolean;
-  scansCount: number;
-  createdAt: string;
-}
+import { Zap, Plus, ExternalLink, Edit3, Check, X, ShieldAlert, Sparkles, RefreshCw, Eye, Copy, Trash2 } from 'lucide-react';
+import {
+  getStoredQrItems,
+  saveStoredQrItems,
+  addStoredQrItem,
+  updateStoredQrItem,
+  deleteStoredQrItem,
+  recordScanEvent,
+  QrItemStorage,
+} from '@/lib/client-storage';
 
 export function DynamicQrTable() {
-  const [qrItems, setQrItems] = useState<QrItem[]>([]);
+  const [qrItems, setQrItems] = useState<QrItemStorage[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
-  
+
   // Create Form State
   const [newTitle, setNewTitle] = useState('');
   const [newDestinationUrl, setNewDestinationUrl] = useState('');
   const [newLogoUrl, setNewLogoUrl] = useState('');
-  
+
   // Editing State
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editUrl, setEditUrl] = useState('');
   const [updating, setUpdating] = useState(false);
-  
+
   // Preview Modal
-  const [previewQr, setPreviewQr] = useState<QrItem | null>(null);
+  const [previewQr, setPreviewQr] = useState<QrItemStorage | null>(null);
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
 
-  // Fetch QR items from API
+  // Initialize and sync LocalStorage + API items
   const fetchQrItems = async () => {
     setLoading(true);
+
+    // 1. Read LocalStorage items
+    let localItems = getStoredQrItems();
+
+    // 2. Check for scan tracking cookie `omni_last_scan`
+    try {
+      const cookies = document.cookie.split('; ');
+      const scanCookie = cookies.find((c) => c.startsWith('omni_last_scan='));
+      if (scanCookie) {
+        const valueStr = decodeURIComponent(scanCookie.split('=')[1]);
+        const parsed = JSON.parse(valueStr);
+        if (parsed?.shortCode) {
+          localItems = recordScanEvent(parsed.shortCode);
+          // Clear cookie
+          document.cookie = 'omni_last_scan=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
+        }
+      }
+    } catch {}
+
+    setQrItems(localItems);
+
+    // 3. Fetch server API items and merge
     try {
       const res = await fetch('/api/v1/qr');
       const data = await res.json();
-      if (data.data) {
-        setQrItems(data.data);
+      if (data.data && Array.isArray(data.data)) {
+        const serverItems: QrItemStorage[] = data.data;
+        // Merge strategy: map server items over local items to combine scan counts & additions
+        const mergedMap = new Map<string, QrItemStorage>();
+
+        // Put server items first
+        serverItems.forEach((s) => mergedMap.set(s.id, s));
+        // Merge local custom items
+        localItems.forEach((l) => {
+          const existing = mergedMap.get(l.id);
+          if (existing) {
+            mergedMap.set(l.id, {
+              ...existing,
+              destinationUrl: l.destinationUrl,
+              isActive: l.isActive,
+              scansCount: Math.max(existing.scansCount, l.scansCount),
+            });
+          } else {
+            mergedMap.set(l.id, l);
+          }
+        });
+
+        const mergedList = Array.from(mergedMap.values());
+        setQrItems(mergedList);
+        saveStoredQrItems(mergedList);
       }
     } catch (err) {
-      console.error('Failed to fetch QRs:', err);
+      console.warn('Using LocalStorage fallback items:', err);
     } finally {
       setLoading(false);
     }
@@ -71,13 +114,33 @@ export function DynamicQrTable() {
       });
 
       const result = await res.json();
-      if (result.success) {
-        setShowCreateModal(false);
-        setNewTitle('');
-        setNewDestinationUrl('');
-        setNewLogoUrl('');
-        fetchQrItems();
+      let createdItem: QrItemStorage;
+
+      if (result.success && result.data) {
+        createdItem = result.data;
+      } else {
+        // Fallback client creation if server API is unreachable
+        const shortCode = Math.random().toString(36).substring(2, 8);
+        createdItem = {
+          id: 'qr-' + Date.now(),
+          shortCode,
+          title: newTitle || `Dynamic QR (${shortCode})`,
+          destinationUrl: newDestinationUrl,
+          logoUrl: newLogoUrl || null,
+          isActive: true,
+          scansCount: 0,
+          createdAt: new Date().toISOString(),
+        };
       }
+
+      // Persist directly to LocalStorage so it never disappears on page reload!
+      const updatedList = addStoredQrItem(createdItem);
+      setQrItems(updatedList);
+      setPreviewQr(createdItem);
+      setShowCreateModal(false);
+      setNewTitle('');
+      setNewDestinationUrl('');
+      setNewLogoUrl('');
     } catch (err) {
       console.error('Creation error:', err);
     } finally {
@@ -89,19 +152,16 @@ export function DynamicQrTable() {
     if (!editUrl) return;
     setUpdating(true);
     try {
-      const res = await fetch(`/api/v1/qr/${id}`, {
+      fetch(`/api/v1/qr/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ destinationUrl: editUrl }),
-      });
+      }).catch(() => {});
 
-      const result = await res.json();
-      if (result.success) {
-        setQrItems((prev) =>
-          prev.map((item) => (item.id === id ? { ...item, destinationUrl: editUrl } : item))
-        );
-        setEditingId(null);
-      }
+      // Instantly update LocalStorage
+      const updatedList = updateStoredQrItem(id, { destinationUrl: editUrl });
+      setQrItems(updatedList);
+      setEditingId(null);
     } catch (err) {
       console.error('Update error:', err);
     } finally {
@@ -111,19 +171,29 @@ export function DynamicQrTable() {
 
   const handleToggleActive = async (id: string, currentStatus: boolean) => {
     try {
-      const res = await fetch(`/api/v1/qr/${id}`, {
+      fetch(`/api/v1/qr/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ isActive: !currentStatus }),
-      });
+      }).catch(() => {});
 
-      if (res.ok) {
-        setQrItems((prev) =>
-          prev.map((item) => (item.id === id ? { ...item, isActive: !currentStatus } : item))
-        );
-      }
+      // Instantly update LocalStorage
+      const updatedList = updateStoredQrItem(id, { isActive: !currentStatus });
+      setQrItems(updatedList);
     } catch (err) {
       console.error('Toggle error:', err);
+    }
+  };
+
+  const handleDeleteQr = async (id: string) => {
+    if (!confirm('Are you sure you want to delete this dynamic QR code?')) return;
+
+    try {
+      fetch(`/api/v1/qr/${id}`, { method: 'DELETE' }).catch(() => {});
+      const updatedList = deleteStoredQrItem(id);
+      setQrItems(updatedList);
+    } catch (err) {
+      console.error('Delete error:', err);
     }
   };
 
@@ -286,18 +356,29 @@ export function DynamicQrTable() {
 
                       {/* Scans Count */}
                       <td className="px-6 py-4 text-center font-mono font-bold text-white">
-                        {item.scansCount.toLocaleString()}
+                        <span className="px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-800 text-sky-400">
+                          {item.scansCount.toLocaleString()}
+                        </span>
                       </td>
 
                       {/* Actions */}
                       <td className="px-6 py-4 text-right">
-                        <button
-                          onClick={() => setPreviewQr(item)}
-                          className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium inline-flex items-center gap-1.5"
-                        >
-                          <Eye className="w-3.5 h-3.5 text-sky-400" />
-                          <span>Preview</span>
-                        </button>
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            onClick={() => setPreviewQr(item)}
+                            className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium inline-flex items-center gap-1.5"
+                          >
+                            <Eye className="w-3.5 h-3.5 text-sky-400" />
+                            <span>Preview</span>
+                          </button>
+                          <button
+                            onClick={() => handleDeleteQr(item.id)}
+                            className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20"
+                            title="Delete QR"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );

@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { redis } from '@/lib/redis';
 import { prisma } from '@/lib/prisma';
+import { memoryQrStore, updateMemoryQr } from '@/lib/memory-store';
 
-export const runtime = 'nodejs'; // High-performance edge/node runtime
+export const runtime = 'nodejs';
 
 interface RouteParams {
   params: {
@@ -12,8 +13,8 @@ interface RouteParams {
 
 /**
  * Edge Dynamic Redirect Route: /r/[code]
- * Target latency: <10ms lookup via Redis cache
- * Strategy: Redis cache -> Fallback DB -> Async non-blocking telemetry -> HTTP 302 Redirect
+ * Latency target: <10ms lookup via Redis / Memory cache
+ * Increment scan count & set tracking cookie -> Instant 302 Redirect
  */
 export async function GET(request: NextRequest, { params }: RouteParams) {
   const shortCode = params.code;
@@ -38,31 +39,51 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       isActive = parsed.isActive;
       qrCodeId = parsed.id;
     } else {
-      // 2. Cache Miss -> Query Database
-      const qrRecord = await prisma.qrCode.findUnique({
-        where: { shortCode },
-        select: { id: true, destinationUrl: true, isActive: true },
-      });
+      // 2. Query Database
+      try {
+        const qrRecord = await prisma.qrCode.findUnique({
+          where: { shortCode },
+          select: { id: true, destinationUrl: true, isActive: true },
+        });
 
-      if (qrRecord) {
-        destinationUrl = qrRecord.destinationUrl;
-        isActive = qrRecord.isActive;
-        qrCodeId = qrRecord.id;
+        if (qrRecord) {
+          destinationUrl = qrRecord.destinationUrl;
+          isActive = qrRecord.isActive;
+          qrCodeId = qrRecord.id;
 
-        // Populate Redis cache asynchronously with 1 hour TTL
-        redis.set(
-          cacheKey,
-          JSON.stringify({ id: qrRecord.id, destinationUrl: qrRecord.destinationUrl, isActive: qrRecord.isActive }),
-          'EX',
-          3600
-        ).catch(() => {});
+          redis.set(
+            cacheKey,
+            JSON.stringify({ id: qrRecord.id, destinationUrl: qrRecord.destinationUrl, isActive: qrRecord.isActive }),
+            'EX',
+            3600
+          ).catch(() => {});
+        }
+      } catch (dbErr) {
+        console.warn('[EdgeRedirect] DB query fallback to memory store');
+      }
+
+      // 3. Fallback to Memory Store
+      if (!destinationUrl) {
+        const memItem = memoryQrStore.find((i) => i.shortCode === shortCode);
+        if (memItem) {
+          destinationUrl = memItem.destinationUrl;
+          isActive = memItem.isActive;
+          qrCodeId = memItem.id;
+
+          redis.set(
+            cacheKey,
+            JSON.stringify({ id: memItem.id, destinationUrl: memItem.destinationUrl, isActive: memItem.isActive }),
+            'EX',
+            3600
+          ).catch(() => {});
+        }
       }
     }
   } catch (error) {
     console.error(`[EdgeRedirect] Error retrieving shortCode '${shortCode}':`, error);
   }
 
-  // Fallback for mock demo environment if DB is unpopulated
+  // Demo fallback
   if (!destinationUrl) {
     if (shortCode === 'demo' || shortCode === 'paid-demo') {
       destinationUrl = 'https://google.com';
@@ -83,8 +104,13 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     );
   }
 
-  // 3. Non-blocking Async Telemetry Logging
-  // Fired asynchronously so client redirect latency is not affected
+  // Increment scan count in memory store
+  const memItem = memoryQrStore.find((i) => i.shortCode === shortCode || i.id === qrCodeId);
+  if (memItem) {
+    updateMemoryQr(memItem.id, { scansCount: memItem.scansCount + 1 });
+  }
+
+  // Async Telemetry Logging
   const userAgent = request.headers.get('user-agent') || '';
   const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || request.headers.get('x-real-ip') || '127.0.0.1';
   const country = request.headers.get('x-vercel-ip-country') || request.headers.get('cf-ipcountry') || 'US';
@@ -96,25 +122,30 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     ip,
     country,
     city,
-  }).catch((err) => console.error('[Telemetry] Failed to log scan:', err));
+  }).catch(() => {});
 
-  // Log edge latency metrics
   const duration = Date.now() - startTime;
   console.log(`[EdgeRedirect] ${shortCode} -> ${destinationUrl} (${duration}ms)`);
 
-  // 4. Return instant HTTP 302 Redirect
-  return NextResponse.redirect(destinationUrl, {
+  // Create HTTP 302 Response and set scan event tracking cookie
+  const response = NextResponse.redirect(destinationUrl, {
     status: 302,
     headers: {
       'Cache-Control': 'no-store, max-age=0',
       'X-Redirect-Latency': `${duration}ms`,
     },
   });
+
+  // Set tracking cookie so client dashboard immediately registers scan count
+  response.cookies.set('omni_last_scan', JSON.stringify({ shortCode, ts: Date.now() }), {
+    path: '/',
+    maxAge: 300, // 5 minutes
+    sameSite: 'lax',
+  });
+
+  return response;
 }
 
-/**
- * Async telemetry processor
- */
 async function logScanTelemetryAsync(data: {
   qrCodeId: string;
   userAgent: string;
@@ -125,10 +156,8 @@ async function logScanTelemetryAsync(data: {
   const { device, os, browser } = parseUserAgent(data.userAgent);
 
   try {
-    // 1. Increment Redis aggregate counter
     await redis.incr(`qr:scans:total:${data.qrCodeId}`);
 
-    // 2. Persist to PostgreSQL QrScan table if valid UUID/cuid
     if (data.qrCodeId && data.qrCodeId !== 'demo-id') {
       await prisma.qrScan.create({
         data: {
@@ -143,20 +172,14 @@ async function logScanTelemetryAsync(data: {
         },
       });
 
-      // Update scan count on parent QrCode
       await prisma.qrCode.update({
         where: { id: data.qrCodeId },
         data: { scansCount: { increment: 1 } },
       });
     }
-  } catch (err) {
-    console.warn('[Telemetry] DB ingestion skipped (dev fallback active):', err);
-  }
+  } catch {}
 }
 
-/**
- * Simple User-Agent Parser for device, OS, browser detection
- */
 function parseUserAgent(ua: string): { device: string; os: string; browser: string } {
   let device = 'Desktop';
   if (/mobile/i.test(ua)) device = 'Mobile';

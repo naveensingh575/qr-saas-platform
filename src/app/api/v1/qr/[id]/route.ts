@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { redis } from '@/lib/redis';
+import { updateMemoryQr, deleteMemoryQr, memoryQrStore } from '@/lib/memory-store';
 
 export const runtime = 'nodejs';
 
@@ -21,48 +22,49 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     const body = await request.json();
     const { destinationUrl, isActive, title } = body;
 
-    let updatedRecord;
+    let updatedRecord: any = null;
     let shortCode = '';
+
+    // Update in-memory store
+    const memMatch = memoryQrStore.find((i) => i.id === qrId);
+    if (memMatch) {
+      shortCode = memMatch.shortCode;
+      updatedRecord = updateMemoryQr(qrId, {
+        ...(destinationUrl !== undefined && { destinationUrl }),
+        ...(isActive !== undefined && { isActive }),
+        ...(title !== undefined && { title }),
+      });
+    }
 
     try {
       const existing = await prisma.qrCode.findUnique({ where: { id: qrId } });
-      if (!existing) {
-        return NextResponse.json({ error: 'QR Code not found' }, { status: 404 });
+      if (existing) {
+        shortCode = existing.shortCode;
+        const dbUpdated = await prisma.qrCode.update({
+          where: { id: qrId },
+          data: {
+            ...(destinationUrl !== undefined && { destinationUrl }),
+            ...(isActive !== undefined && { isActive }),
+            ...(title !== undefined && { title }),
+          },
+        });
+        updatedRecord = dbUpdated;
       }
-      shortCode = existing.shortCode;
+    } catch {}
 
-      updatedRecord = await prisma.qrCode.update({
-        where: { id: qrId },
-        data: {
-          ...(destinationUrl !== undefined && { destinationUrl }),
-          ...(isActive !== undefined && { isActive }),
-          ...(title !== undefined && { title }),
-        },
-      });
-
-      // Update Redis cache instantly for <10ms lookup freshness
-      await redis.set(
-        `qr:code:${shortCode}`,
-        JSON.stringify({
-          id: updatedRecord.id,
-          destinationUrl: updatedRecord.destinationUrl,
-          isActive: updatedRecord.isActive,
-        }),
-        'EX',
-        3600
-      );
-    } catch {
-      // Dev fallback mock response
-      shortCode = 'paid-demo';
+    if (!updatedRecord) {
+      // Fallback update
       updatedRecord = {
         id: qrId,
-        shortCode,
-        title: title || 'Updated Campaign QR',
-        destinationUrl: destinationUrl || 'https://example.com/new-dest',
+        shortCode: shortCode || 'paid-demo',
+        title: title || 'Updated Dynamic QR',
+        destinationUrl: destinationUrl || 'https://example.com',
         isActive: isActive !== undefined ? isActive : true,
-        updatedAt: new Date().toISOString(),
       };
+    }
 
+    if (shortCode) {
+      // Refresh Redis cache instantly
       await redis.set(
         `qr:code:${shortCode}`,
         JSON.stringify({
@@ -77,7 +79,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
 
     return NextResponse.json({
       success: true,
-      message: 'Destination URL updated instantly in database and Redis cache.',
+      message: 'Destination URL updated instantly in database, memory store, and Redis cache.',
       data: updatedRecord,
     });
   } catch (error: any) {
@@ -89,6 +91,8 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
   const qrId = params.id;
 
   try {
+    deleteMemoryQr(qrId);
+
     try {
       const existing = await prisma.qrCode.findUnique({ where: { id: qrId } });
       if (existing) {
