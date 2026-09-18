@@ -4,7 +4,8 @@ import React, { useState } from 'react';
 import Papa from 'papaparse';
 import JSZip from 'jszip';
 import { generateDynamicQrSvg } from '@/lib/qr-generator';
-import { FileSpreadsheet, Upload, Download, CheckCircle, RefreshCw, AlertCircle, FileCheck, Play } from 'lucide-react';
+import { FileSpreadsheet, Upload, Download, CheckCircle, RefreshCw, AlertCircle, FileCheck, Play, Lock, LogIn, UserPlus } from 'lucide-react';
+import { useAuth } from '@/lib/auth-context';
 
 interface CsvRow {
   destinationUrl: string;
@@ -13,6 +14,7 @@ interface CsvRow {
 }
 
 export function BulkCsvUploader() {
+  const { user, setShowSignupModal, setShowLoginModal } = useAuth();
   const [csvFile, setCsvFile] = useState<File | null>(null);
   const [parsedRows, setParsedRows] = useState<CsvRow[]>([]);
   const [processing, setProcessing] = useState(false);
@@ -125,6 +127,39 @@ https://example.com/app-store,Mobile Download,DYNAMIC`;
 
   return (
     <div className="space-y-6">
+      {/* Unauthenticated Gate Banner */}
+      {!user.isLoggedIn && (
+        <div className="p-6 rounded-2xl glass-panel border border-amber-500/30 bg-amber-500/5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-amber-500/20 flex items-center justify-center text-amber-400">
+              <Lock className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-white">Authentication Required for Bulk CSV Queue</h3>
+              <p className="text-xs text-slate-400">
+                Sign up or sign in to process high-volume CSV batches using BullMQ background queues.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowLoginModal(true)}
+              className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 text-xs font-semibold border border-slate-700 flex items-center gap-1.5"
+            >
+              <LogIn className="w-3.5 h-3.5" />
+              <span>Sign In</span>
+            </button>
+            <button
+              onClick={() => setShowSignupModal(true)}
+              className="px-4 py-2 rounded-xl gradient-button text-white text-xs font-semibold shadow-md flex items-center gap-1.5"
+            >
+              <UserPlus className="w-3.5 h-3.5" />
+              <span>Create Account</span>
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Header Banner */}
       <div className="p-5 rounded-2xl glass-panel border border-purple-500/20 bg-purple-500/5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div className="flex items-center gap-3">

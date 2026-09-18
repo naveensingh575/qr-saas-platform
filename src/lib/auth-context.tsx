@@ -26,38 +26,20 @@ interface AuthContextType {
   setShowCreateTeamModal: (show: boolean) => void;
 }
 
-// Preset Users for quick switching / testing
-export const PRESET_USERS: AuthUser[] = [
-  {
-    id: 'u-naveen',
-    name: 'Naveen',
-    email: 'naveen@omniqr.online',
-    role: 'ADMIN',
-    avatar: 'NV',
-    isLoggedIn: true,
-  },
-  {
-    id: 'u-owner',
-    name: 'Alex Rivera',
-    email: 'alex@acme.io',
-    role: 'OWNER',
-    avatar: 'AR',
-    isLoggedIn: true,
-  },
-  {
-    id: 'u-member',
-    name: 'David Miller',
-    email: 'david@acme.io',
-    role: 'MEMBER',
-    avatar: 'DM',
-    isLoggedIn: true,
-  },
-];
+// Preset Users empty for clean multi-tenant DB auth
+export const PRESET_USERS: AuthUser[] = [];
 
-const defaultUser: AuthUser = PRESET_USERS[0]; // Default to Naveen (Admin)
+const defaultLoggedOutUser: AuthUser = {
+  id: '',
+  name: '',
+  email: '',
+  role: 'MEMBER',
+  avatar: '',
+  isLoggedIn: false,
+};
 
 const AuthContext = createContext<AuthContextType>({
-  user: defaultUser,
+  user: defaultLoggedOutUser,
   login: () => {},
   logout: () => {},
   switchRole: () => {},
@@ -72,32 +54,44 @@ const AuthContext = createContext<AuthContextType>({
 const AUTH_STORAGE_KEY = 'omni_auth_user_v1';
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<AuthUser>(defaultUser);
+  const [user, setUser] = useState<AuthUser>(defaultLoggedOutUser);
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [showSignupModal, setShowSignupModal] = useState(false);
   const [showCreateTeamModal, setShowCreateTeamModal] = useState(false);
 
-  // Initialize from LocalStorage
+  // Initialize and verify active session token with database /api/v1/auth/me
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem(AUTH_STORAGE_KEY);
-      if (stored) {
-        setUser(JSON.parse(stored));
-      } else {
-        localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(defaultUser));
-      }
-    } catch {
-      setUser(defaultUser);
-    }
+    fetch('/api/v1/auth/me')
+      .then((res) => res.json())
+      .then((res) => {
+        if (res.authenticated && res.user) {
+          const activeUser: AuthUser = {
+            id: res.user.id,
+            name: res.user.name,
+            email: res.user.email,
+            role: res.user.role || 'ADMIN',
+            avatar: (res.user.name || 'U').substring(0, 2).toUpperCase(),
+            isLoggedIn: true,
+          };
+          setUser(activeUser);
+          localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(activeUser));
+        } else {
+          setUser(defaultLoggedOutUser);
+          localStorage.removeItem(AUTH_STORAGE_KEY);
+        }
+      })
+      .catch(() => {
+        setUser(defaultLoggedOutUser);
+      });
   }, []);
 
   const login = (userData: Partial<AuthUser>) => {
     const updated: AuthUser = {
       id: userData.id || 'u-' + Date.now(),
-      name: userData.name || 'Naveen',
-      email: userData.email || 'naveen@omniqr.online',
+      name: userData.name || 'User',
+      email: userData.email || '',
       role: userData.role || 'ADMIN',
-      avatar: (userData.name || 'Naveen').substring(0, 2).toUpperCase(),
+      avatar: (userData.name || 'U').substring(0, 2).toUpperCase(),
       isLoggedIn: true,
     };
     setUser(updated);
@@ -107,12 +101,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const logout = () => {
-    const loggedOutUser: AuthUser = {
-      ...user,
-      isLoggedIn: false,
-    };
-    setUser(loggedOutUser);
-    localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(loggedOutUser));
+    fetch('/api/v1/auth/logout', { method: 'POST' }).catch(() => {});
+    setUser(defaultLoggedOutUser);
+    localStorage.removeItem(AUTH_STORAGE_KEY);
   };
 
   const switchRole = (newRole: UserRole) => {

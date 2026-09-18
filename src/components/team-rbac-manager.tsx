@@ -16,6 +16,7 @@ import {
   ShieldAlert,
   ChevronDown,
   Building2,
+  LogIn,
 } from 'lucide-react';
 
 interface Member {
@@ -33,49 +34,15 @@ interface ApiKeyItem {
   lastUsedAt?: string;
 }
 
-const DEFAULT_MEMBERS: Member[] = [
-  {
-    id: 'mem-1',
-    role: 'ADMIN',
-    user: { name: 'Naveen', email: 'naveen@omniqr.online' },
-    createdAt: new Date(Date.now() - 86400000 * 30).toISOString(),
-  },
-  {
-    id: 'mem-2',
-    role: 'OWNER',
-    user: { name: 'Alex Rivera', email: 'alex@acme.io' },
-    createdAt: new Date(Date.now() - 86400000 * 60).toISOString(),
-  },
-  {
-    id: 'mem-3',
-    role: 'ADMIN',
-    user: { name: 'Sarah Chen', email: 'sarah@acme.io' },
-    createdAt: new Date(Date.now() - 86400000 * 15).toISOString(),
-  },
-  {
-    id: 'mem-4',
-    role: 'MEMBER',
-    user: { name: 'David Miller', email: 'david@acme.io' },
-    createdAt: new Date(Date.now() - 86400000 * 5).toISOString(),
-  },
-];
-
-const DEFAULT_API_KEYS: ApiKeyItem[] = [
-  {
-    id: 'key-1',
-    name: 'Production Server Token',
-    keyPrefix: 'sk_live_9a8f...',
-    createdAt: new Date(Date.now() - 86400000 * 10).toISOString(),
-    lastUsedAt: new Date().toISOString(),
-  },
-];
+const DEFAULT_MEMBERS: Member[] = [];
+const DEFAULT_API_KEYS: ApiKeyItem[] = [];
 
 const LOCAL_MEMBERS_KEY = 'omni_team_members_v2';
 const LOCAL_KEYS_KEY = 'omni_api_keys_v2';
 const LOCAL_TIER_KEY = 'omni_workspace_tier_v2';
 
 export function TeamRbacManager() {
-  const { user, setShowLoginModal, setShowCreateTeamModal } = useAuth();
+  const { user, setShowLoginModal, setShowSignupModal, setShowCreateTeamModal } = useAuth();
   
   const [members, setMembers] = useState<Member[]>(DEFAULT_MEMBERS);
   const [apiKeys, setApiKeys] = useState<ApiKeyItem[]>(DEFAULT_API_KEYS);
@@ -225,44 +192,74 @@ export function TeamRbacManager() {
 
   return (
     <div className="space-y-8">
-      {/* Active User Session Banner */}
-      <div className="p-5 rounded-2xl glass-panel border border-sky-500/30 bg-sky-500/5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div className="flex items-center gap-3.5">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-sky-500 to-purple-600 flex items-center justify-center text-white font-bold text-sm shadow-md">
-            {user.avatar}
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h3 className="text-base font-bold text-white">{user.name}</h3>
-              <span
-                className={`text-xs px-2.5 py-0.5 rounded-full font-bold border ${
-                  user.role === 'OWNER'
-                    ? 'bg-purple-500/20 text-purple-300 border-purple-500/30'
-                    : user.role === 'ADMIN'
-                    ? 'bg-sky-500/20 text-sky-300 border-sky-500/30'
-                    : 'bg-slate-800 text-slate-400 border-slate-700'
-                }`}
-              >
-                {user.role} ROLE
-              </span>
-              {user.name === 'Naveen' && (
-                <span className="text-xs px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/30">
-                  Enterprise Lead
-                </span>
-              )}
+      {/* Unauthenticated Gate Banner */}
+      {!user.isLoggedIn && (
+        <div className="p-6 rounded-2xl glass-panel border border-amber-500/30 bg-amber-500/5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-amber-500/20 flex items-center justify-center text-amber-400">
+              <Lock className="w-5 h-5" />
             </div>
-            <p className="text-xs text-slate-400 mt-0.5">{user.email} • Authenticated Workspace User</p>
+            <div>
+              <h3 className="text-sm font-bold text-white">Authentication Required for Team & RBAC Workspace</h3>
+              <p className="text-xs text-slate-400">
+                Sign up or sign in to provision your team workspace, manage team members, and generate secret API keys.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowLoginModal(true)}
+              className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 text-xs font-semibold border border-slate-700 flex items-center gap-1.5"
+            >
+              <LogIn className="w-3.5 h-3.5" />
+              <span>Sign In</span>
+            </button>
+            <button
+              onClick={() => setShowSignupModal(true)}
+              className="px-4 py-2 rounded-xl gradient-button text-white text-xs font-semibold shadow-md flex items-center gap-1.5"
+            >
+              <UserPlus className="w-3.5 h-3.5" />
+              <span>Create Account</span>
+            </button>
           </div>
         </div>
+      )}
 
-        <button
-          onClick={() => setShowLoginModal(true)}
-          className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-sky-400 text-xs font-semibold border border-sky-500/30 flex items-center gap-2"
-        >
-          <Shield className="w-4 h-4" />
-          <span>Switch User Profile / Sign In</span>
-        </button>
-      </div>
+      {/* Active User Session Banner */}
+      {user.isLoggedIn && (
+        <div className="p-5 rounded-2xl glass-panel border border-sky-500/30 bg-sky-500/5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-3.5">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-sky-500 to-purple-600 flex items-center justify-center text-white font-bold text-sm shadow-md">
+              {user.avatar}
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-base font-bold text-white">{user.name}</h3>
+                <span
+                  className={`text-xs px-2.5 py-0.5 rounded-full font-bold border ${
+                    user.role === 'OWNER'
+                      ? 'bg-purple-500/20 text-purple-300 border-purple-500/30'
+                      : user.role === 'ADMIN'
+                      ? 'bg-sky-500/20 text-sky-300 border-sky-500/30'
+                      : 'bg-slate-800 text-slate-400 border-slate-700'
+                  }`}
+                >
+                  {user.role} ROLE
+                </span>
+              </div>
+              <p className="text-xs text-slate-400 mt-0.5">{user.email} • Authenticated Workspace User</p>
+            </div>
+          </div>
+
+          <button
+            onClick={() => setShowLoginModal(true)}
+            className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-sky-400 text-xs font-semibold border border-sky-500/30 flex items-center gap-2"
+          >
+            <Shield className="w-4 h-4" />
+            <span>Switch User Profile / Sign In</span>
+          </button>
+        </div>
+      )}
 
       {/* Enterprise Tier & Workspace Control */}
       <div className="glass-panel p-6 rounded-2xl border border-slate-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
