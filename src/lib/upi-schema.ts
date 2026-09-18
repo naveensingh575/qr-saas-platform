@@ -25,7 +25,8 @@ export interface UpiSplitResultItem {
   uri: string;
 }
 
-// 1 Crore = 10,000,000 INR (10 Million / 1 Crore max cap)
+// Minimum amount: 0.01 INR, Maximum cap: 1 Crore (10,000,000 INR)
+export const MIN_UPI_AMOUNT = 0.01;
 export const MAX_UPI_AMOUNT_CRORE = 10000000;
 
 /**
@@ -43,8 +44,10 @@ export function buildUpiUri(params: UpiPaymentConfig): string {
   
   if (params.am !== undefined && params.am !== '') {
     let numericAmt = typeof params.am === 'number' ? params.am : parseFloat(params.am);
-    if (isNaN(numericAmt)) numericAmt = 0;
-    // Cap at 1 Crore (10,000,000 INR)
+    // Enforce >= 0.01 and <= 1 Crore (10,000,000)
+    if (isNaN(numericAmt) || numericAmt < MIN_UPI_AMOUNT) {
+      numericAmt = MIN_UPI_AMOUNT;
+    }
     if (numericAmt > MAX_UPI_AMOUNT_CRORE) {
       numericAmt = MAX_UPI_AMOUNT_CRORE;
     }
@@ -71,7 +74,7 @@ export function buildUpiUri(params: UpiPaymentConfig): string {
 
 /**
  * Calculates NPCI-compliant UPI URI splits for amounts above ₹2,000
- * Capped at 1 Crore (10,000,000 INR)
+ * Amount range: ₹0.01 to ₹1 Crore (10,000,000 INR)
  */
 export function calculateUpiSplits(
   baseConfig: UpiPaymentConfig,
@@ -79,7 +82,7 @@ export function calculateUpiSplits(
 ): UpiSplitResultItem[] {
   let totalAmount = typeof splitConfig.totalAmount === 'number' ? splitConfig.totalAmount : parseFloat(splitConfig.totalAmount || '0');
 
-  if (!totalAmount || totalAmount <= 0) return [];
+  if (isNaN(totalAmount) || totalAmount < MIN_UPI_AMOUNT) return [];
 
   // Enforce 1 Crore Cap
   if (totalAmount > MAX_UPI_AMOUNT_CRORE) {

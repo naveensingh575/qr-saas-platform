@@ -348,11 +348,14 @@ export function StaticQrBuilder() {
                         <input
                           type="number"
                           step="0.01"
+                          min="0.01"
                           max="10000000"
                           value={upiData.am}
                           onChange={(e) => {
                             const val = parseFloat(e.target.value);
-                            if (val > 10000000) {
+                            if (isNaN(val) || val < 0.01) {
+                              setUpiData({ ...upiData, am: '0.01' });
+                            } else if (val > 10000000) {
                               setUpiData({ ...upiData, am: '10000000' });
                             } else {
                               setUpiData({ ...upiData, am: e.target.value });
@@ -361,8 +364,13 @@ export function StaticQrBuilder() {
                           placeholder="5000.00"
                           className="w-full px-3.5 py-2 rounded-lg bg-slate-950 border border-slate-700 text-emerald-400 font-mono font-bold text-sm focus:border-emerald-500"
                         />
-                        <p className="text-[10px] text-slate-400 mt-1 flex items-center gap-1 font-mono">
-                          <span>Max Limit: ₹1,00,00,000 (1 Crore INR)</span>
+                        <p className="text-[10px] text-slate-400 mt-1 flex items-center justify-between font-mono">
+                          <span>Range: ₹0.01 to ₹1,00,00,000 (1 Crore)</span>
+                          {parseFloat(upiData.am) < 0.01 && (
+                            <span className="text-rose-400 font-bold px-1.5 py-0.2 rounded bg-rose-500/10 border border-rose-500/20">
+                              Min ₹0.01 Required
+                            </span>
+                          )}
                           {parseFloat(upiData.am) >= 10000000 && (
                             <span className="text-amber-400 font-bold px-1.5 py-0.2 rounded bg-amber-500/10 border border-amber-500/20">
                               Capped at 1 Crore
@@ -522,11 +530,14 @@ export function StaticQrBuilder() {
                       <input
                         type="number"
                         step="0.01"
+                        min="0.01"
                         max="10000000"
                         value={upiData.am}
                         onChange={(e) => {
                           const val = parseFloat(e.target.value);
-                          if (val > 10000000) {
+                          if (isNaN(val) || val < 0.01) {
+                            setUpiData({ ...upiData, am: '0.01' });
+                          } else if (val > 10000000) {
                             setUpiData({ ...upiData, am: '10000000' });
                           } else {
                             setUpiData({ ...upiData, am: e.target.value });
@@ -535,7 +546,14 @@ export function StaticQrBuilder() {
                         placeholder="250.00"
                         className="w-full px-3.5 py-2.5 rounded-lg bg-slate-950 border border-slate-700 text-white text-sm font-mono focus:border-emerald-500"
                       />
-                      <p className="text-[10px] text-slate-400 mt-1 font-mono">Max limit: ₹1,00,00,000 (1 Crore INR)</p>
+                      <p className="text-[10px] text-slate-400 mt-1 font-mono flex items-center justify-between">
+                        <span>Range: ₹0.01 to ₹1,00,00,000 (1 Crore)</span>
+                        {parseFloat(upiData.am) < 0.01 && (
+                          <span className="text-rose-400 font-bold px-1 py-0.2 rounded bg-rose-500/10 border border-rose-500/20">
+                            Min ₹0.01
+                          </span>
+                        )}
+                      </p>
                     </div>
                     <div>
                       <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">
