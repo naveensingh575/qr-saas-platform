@@ -8,6 +8,23 @@ export interface UpiPaymentConfig {
   mc?: string; // Merchant Code
 }
 
+export interface UpiSplitOption {
+  enabled: boolean;
+  totalAmount: number;
+  splitMode: 'cap_2000' | 'by_count';
+  numberOfSplits?: number;
+  maxCapPerQr?: number; // Default 1999 to stay below NPCI ₹2,000 fee threshold
+}
+
+export interface UpiSplitResultItem {
+  partIndex: number;
+  totalParts: number;
+  amount: number;
+  formattedAmount: string;
+  note: string;
+  uri: string;
+}
+
 /**
  * Builds standard NPCI compliant UPI Payment URI string
  * Format: upi://pay?pa=address@bank&pn=PayeeName&am=100.00&cu=INR&tn=Note
@@ -22,7 +39,8 @@ export function buildUpiUri(params: UpiPaymentConfig): string {
   queryParams.append('pn', (params.pn || 'Payee').trim());
   
   if (params.am !== undefined && params.am !== '') {
-    const formattedAmt = typeof params.am === 'number' ? params.am.toFixed(2) : parseFloat(params.am).toFixed(2);
+    const numericAmt = typeof params.am === 'number' ? params.am : parseFloat(params.am);
+    const formattedAmt = isNaN(numericAmt) ? '0.00' : numericAmt.toFixed(2);
     queryParams.append('am', formattedAmt);
   }
   
@@ -41,6 +59,71 @@ export function buildUpiUri(params: UpiPaymentConfig): string {
   }
 
   return `upi://pay?${queryParams.toString()}`;
+}
+
+/**
+ * Calculates NPCI-compliant UPI URI splits for amounts above ₹2,000
+ */
+export function calculateUpiSplits(
+  baseConfig: UpiPaymentConfig,
+  splitConfig: UpiSplitOption
+): UpiSplitResultItem[] {
+  const totalAmount = typeof splitConfig.totalAmount === 'number' ? splitConfig.totalAmount : parseFloat(splitConfig.totalAmount || '0');
+
+  if (!totalAmount || totalAmount <= 0) return [];
+
+  let partsAmounts: number[] = [];
+  const { splitMode, numberOfSplits = 2, maxCapPerQr = 1999 } = splitConfig;
+
+  if (splitMode === 'cap_2000') {
+    const cap = Math.max(100, maxCapPerQr);
+    let remaining = Math.round(totalAmount * 100) / 100;
+    while (remaining > 0) {
+      if (remaining <= cap) {
+        partsAmounts.push(parseFloat(remaining.toFixed(2)));
+        remaining = 0;
+      } else {
+        partsAmounts.push(cap);
+        remaining = Math.round((remaining - cap) * 100) / 100;
+      }
+    }
+  } else {
+    // Mode: by_count
+    const count = Math.max(1, numberOfSplits);
+    const equalShare = Math.floor((totalAmount / count) * 100) / 100;
+    let remainder = Math.round((totalAmount - equalShare * count) * 100) / 100;
+
+    for (let i = 0; i < count; i++) {
+      let amt = equalShare;
+      if (i === count - 1) {
+        amt = parseFloat((amt + remainder).toFixed(2));
+      } else {
+        amt = parseFloat(amt.toFixed(2));
+      }
+      partsAmounts.push(amt);
+    }
+  }
+
+  const totalParts = partsAmounts.length;
+  const baseNote = baseConfig.tn ? baseConfig.tn.trim() : 'Payment';
+
+  return partsAmounts.map((amt, idx) => {
+    const note = `${baseNote} (Part ${idx + 1}/${totalParts})`;
+    const uri = buildUpiUri({
+      ...baseConfig,
+      am: amt,
+      tn: note,
+    });
+
+    return {
+      partIndex: idx + 1,
+      totalParts,
+      amount: amt,
+      formattedAmount: amt.toFixed(2),
+      note,
+      uri,
+    };
+  });
 }
 
 /**
