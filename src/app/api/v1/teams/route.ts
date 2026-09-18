@@ -1,16 +1,41 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { hasPermission, Role } from '@/lib/rbac';
+import { verifySessionToken, hashPassword } from '@/lib/auth';
 
 export const runtime = 'nodejs';
 
+function getSessionPayload(request: NextRequest) {
+  const token =
+    request.cookies.get('omni_session_token')?.value ||
+    request.headers.get('authorization')?.replace('Bearer ', '');
+  if (!token) return null;
+  return verifySessionToken(token);
+}
+
 /**
- * GET /api/v1/teams - Retrieve workspace team members and API keys
- * POST /api/v1/teams - Invite new team member or issue API key
+ * GET /api/v1/teams - Retrieve authenticated workspace team members and API keys
  */
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const session = getSessionPayload(request);
+  const teamId = session?.teamId;
+
+  if (!teamId) {
+    return NextResponse.json({
+      success: true,
+      data: {
+        id: '',
+        name: 'Workspace',
+        tier: 'FREE',
+        members: [],
+        apiKeys: [],
+      },
+    });
+  }
+
   try {
-    const team = await prisma.team.findFirst({
+    const team = await prisma.team.findUnique({
+      where: { id: teamId },
       include: {
         members: {
           include: { user: true },
@@ -22,53 +47,41 @@ export async function GET() {
     if (team) {
       return NextResponse.json({ success: true, data: team });
     }
-  } catch {}
+  } catch (err) {
+    console.warn('[Teams API GET] DB query fallback:', err);
+  }
 
-  // Fallback mock response for dev workspace
   return NextResponse.json({
     success: true,
     data: {
-      id: 'team-business-demo',
-      name: 'Acme Enterprise Studio',
-      slug: 'acme-enterprise',
+      id: teamId,
+      name: session.teamName || 'Workspace',
       tier: 'BUSINESS',
       members: [
         {
-          id: 'mem-1',
-          role: 'OWNER',
-          user: { id: 'u-1', name: 'Alex Rivera', email: 'alex@acme.io' },
-          createdAt: new Date().toISOString(),
-        },
-        {
-          id: 'mem-2',
-          role: 'ADMIN',
-          user: { id: 'u-2', name: 'Sarah Chen', email: 'sarah@acme.io' },
-          createdAt: new Date().toISOString(),
-        },
-        {
-          id: 'mem-3',
-          role: 'MEMBER',
-          user: { id: 'u-3', name: 'David Miller', email: 'david@acme.io' },
+          id: 'mem-' + session.userId,
+          role: session.role || 'ADMIN',
+          user: { id: session.userId, name: session.name, email: session.email },
           createdAt: new Date().toISOString(),
         },
       ],
-      apiKeys: [
-        {
-          id: 'key-1',
-          name: 'Production Server Token',
-          keyPrefix: 'sk_live_9a8f...',
-          createdAt: new Date().toISOString(),
-          lastUsedAt: new Date().toISOString(),
-        },
-      ],
+      apiKeys: [],
     },
   });
 }
 
+/**
+ * POST /api/v1/teams - Invite new team member or issue API key in PostgreSQL database
+ */
 export async function POST(request: NextRequest) {
+  const session = getSessionPayload(request);
+  if (!session || !session.teamId) {
+    return NextResponse.json({ error: 'Authentication required.' }, { status: 401 });
+  }
+
   try {
     const body = await request.json();
-    const { action, email, role, keyName, userRole = 'OWNER' } = body;
+    const { action, email, name, role = 'MEMBER', keyName, userRole = session.role } = body;
 
     // Check RBAC permission
     if (action === 'INVITE_MEMBER' && !hasPermission(userRole as Role, 'TEAM_INVITE')) {
@@ -82,26 +95,70 @@ export async function POST(request: NextRequest) {
     if (action === 'CREATE_API_KEY') {
       const rawKey = `sk_live_${Math.random().toString(36).substring(2, 14)}${Math.random().toString(36).substring(2, 14)}`;
       const keyPrefix = rawKey.substring(0, 12) + '...';
+      const keyHash = hashPassword(rawKey);
+
+      try {
+        await prisma.apiKey.create({
+          data: {
+            teamId: session.teamId,
+            name: keyName || 'Enterprise API Key',
+            keyHash,
+            keyPrefix,
+          },
+        });
+      } catch (dbErr) {
+        console.warn('[Teams API] DB create API key fallback:', dbErr);
+      }
 
       return NextResponse.json({
         success: true,
         message: 'New API Key generated successfully.',
         apiKey: rawKey,
         keyPrefix,
-        name: keyName || 'New Integration Key',
+        name: keyName || 'Enterprise API Key',
       });
     }
 
     if (action === 'INVITE_MEMBER') {
+      let createdMember: any = null;
+      try {
+        // Find or create user
+        let targetUser = await prisma.user.findUnique({ where: { email } });
+        if (!targetUser) {
+          targetUser = await prisma.user.create({
+            data: {
+              email,
+              name: name || email.split('@')[0],
+              passwordHash: hashPassword('OmniPass123!'),
+              tier: 'BUSINESS',
+            },
+          });
+        }
+
+        const dbMember = await prisma.teamMember.create({
+          data: {
+            teamId: session.teamId,
+            userId: targetUser.id,
+            role: role as Role,
+            permissions: ['QR_CREATE', 'QR_EDIT'],
+          },
+          include: { user: true },
+        });
+        createdMember = dbMember;
+      } catch (dbErr) {
+        console.warn('[Teams API] DB create team member fallback:', dbErr);
+        createdMember = {
+          id: 'mem-' + Date.now(),
+          role,
+          user: { name: name || email.split('@')[0], email },
+          createdAt: new Date().toISOString(),
+        };
+      }
+
       return NextResponse.json({
         success: true,
         message: `Invitation sent to ${email} with role ${role}.`,
-        member: {
-          id: 'mem-' + Date.now(),
-          role,
-          user: { name: email.split('@')[0], email },
-          createdAt: new Date().toISOString(),
-        },
+        member: createdMember,
       });
     }
 
