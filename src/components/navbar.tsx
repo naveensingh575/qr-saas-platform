@@ -3,10 +3,12 @@
 import React, { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { QrCode, Zap, Layers, Users, FileSpreadsheet, ShieldCheck, Sparkles } from 'lucide-react';
+import { useAuth } from '@/lib/auth-context';
+import { QrCode, Zap, Users, FileSpreadsheet, Sparkles, LogIn, UserCheck, Shield } from 'lucide-react';
 
 export function Navbar() {
   const pathname = usePathname();
+  const { user, setShowLoginModal } = useAuth();
   const [currentTier, setCurrentTier] = useState<'FREE' | 'PAID' | 'BUSINESS'>('BUSINESS');
 
   const navLinks = [
@@ -18,7 +20,7 @@ export function Navbar() {
   ];
 
   return (
-    <header className="sticky top-0 z-50 glass-panel border-b border-slate-800/80">
+    <header className="sticky top-0 z-40 glass-panel border-b border-slate-800/80">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
         {/* Brand Logo */}
         <Link href="/" className="flex items-center gap-3 group">
@@ -70,7 +72,7 @@ export function Navbar() {
           })}
         </nav>
 
-        {/* Tier switcher & user indicator */}
+        {/* Tier switcher & Auth User indicator */}
         <div className="flex items-center gap-3">
           <div className="hidden sm:flex items-center gap-1.5 bg-slate-900/80 p-1 rounded-lg border border-slate-800 text-xs">
             <span className="text-slate-400 px-2 font-medium">Tier:</span>
@@ -89,10 +91,44 @@ export function Navbar() {
             ))}
           </div>
 
+          {/* User Profile / Login Button */}
           <div className="flex items-center gap-2 pl-2 border-l border-slate-800">
-            <div className="w-8 h-8 rounded-full bg-gradient-to-r from-purple-500 to-indigo-500 flex items-center justify-center text-white text-xs font-bold shadow-sm">
-              AR
-            </div>
+            {user.isLoggedIn ? (
+              <button
+                onClick={() => setShowLoginModal(true)}
+                className="flex items-center gap-2.5 px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700/80 transition-all text-left"
+                title="Click to switch account or manage role"
+              >
+                <div className="w-7 h-7 rounded-full bg-gradient-to-r from-purple-500 to-indigo-500 flex items-center justify-center text-white text-xs font-bold shadow-sm">
+                  {user.avatar}
+                </div>
+                <div className="hidden lg:flex flex-col">
+                  <div className="text-xs font-bold text-white flex items-center gap-1">
+                    <span>{user.name}</span>
+                    <span
+                      className={`text-[9px] px-1 py-0.2 rounded font-mono font-bold ${
+                        user.role === 'OWNER'
+                          ? 'bg-purple-500/20 text-purple-300'
+                          : user.role === 'ADMIN'
+                          ? 'bg-sky-500/20 text-sky-300'
+                          : 'bg-slate-800 text-slate-400'
+                      }`}
+                    >
+                      {user.role}
+                    </span>
+                  </div>
+                  <span className="text-[10px] text-slate-400 truncate max-w-[120px]">{user.email}</span>
+                </div>
+              </button>
+            ) : (
+              <button
+                onClick={() => setShowLoginModal(true)}
+                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl gradient-button text-white font-semibold text-xs shadow-md"
+              >
+                <LogIn className="w-3.5 h-3.5" />
+                <span>Sign In</span>
+              </button>
+            )}
           </div>
         </div>
       </div>

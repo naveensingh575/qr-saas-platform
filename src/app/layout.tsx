@@ -1,6 +1,8 @@
 import type { Metadata } from 'next';
 import './globals.css';
 import { Navbar } from '@/components/navbar';
+import { AuthProvider } from '@/lib/auth-context';
+import { LoginModal } from '@/components/login-modal';
 
 export const metadata: Metadata = {
   title: 'OmniQR - Multi-Tenant Production QR SaaS Platform',
@@ -16,8 +18,11 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark">
       <body className="min-h-screen bg-slate-950 text-slate-100 antialiased selection:bg-sky-500 selection:text-white">
-        <Navbar />
-        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">{children}</main>
+        <AuthProvider>
+          <Navbar />
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">{children}</main>
+          <LoginModal />
+        </AuthProvider>
       </body>
     </html>
   );

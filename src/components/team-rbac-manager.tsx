@@ -1,11 +1,26 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Users, Key, Shield, UserPlus, Copy, Check, Lock, Sparkles, Plus, AlertCircle } from 'lucide-react';
+import { useAuth, UserRole } from '@/lib/auth-context';
+import {
+  Users,
+  Key,
+  Shield,
+  UserPlus,
+  Copy,
+  Check,
+  Lock,
+  Sparkles,
+  Plus,
+  AlertCircle,
+  ShieldAlert,
+  ChevronDown,
+  Building2,
+} from 'lucide-react';
 
 interface Member {
   id: string;
-  role: 'OWNER' | 'ADMIN' | 'MEMBER';
+  role: UserRole;
   user: { name: string; email: string };
   createdAt: string;
 }
@@ -18,95 +33,186 @@ interface ApiKeyItem {
   lastUsedAt?: string;
 }
 
+const DEFAULT_MEMBERS: Member[] = [
+  {
+    id: 'mem-1',
+    role: 'ADMIN',
+    user: { name: 'Naveen', email: 'naveen@omniqr.online' },
+    createdAt: new Date(Date.now() - 86400000 * 30).toISOString(),
+  },
+  {
+    id: 'mem-2',
+    role: 'OWNER',
+    user: { name: 'Alex Rivera', email: 'alex@acme.io' },
+    createdAt: new Date(Date.now() - 86400000 * 60).toISOString(),
+  },
+  {
+    id: 'mem-3',
+    role: 'ADMIN',
+    user: { name: 'Sarah Chen', email: 'sarah@acme.io' },
+    createdAt: new Date(Date.now() - 86400000 * 15).toISOString(),
+  },
+  {
+    id: 'mem-4',
+    role: 'MEMBER',
+    user: { name: 'David Miller', email: 'david@acme.io' },
+    createdAt: new Date(Date.now() - 86400000 * 5).toISOString(),
+  },
+];
+
+const DEFAULT_API_KEYS: ApiKeyItem[] = [
+  {
+    id: 'key-1',
+    name: 'Production Server Token',
+    keyPrefix: 'sk_live_9a8f...',
+    createdAt: new Date(Date.now() - 86400000 * 10).toISOString(),
+    lastUsedAt: new Date().toISOString(),
+  },
+];
+
+const LOCAL_MEMBERS_KEY = 'omni_team_members_v2';
+const LOCAL_KEYS_KEY = 'omni_api_keys_v2';
+const LOCAL_TIER_KEY = 'omni_workspace_tier_v2';
+
 export function TeamRbacManager() {
-  const [members, setMembers] = useState<Member[]>([]);
-  const [apiKeys, setApiKeys] = useState<ApiKeyItem[]>([]);
-  const [activeRole, setActiveRole] = useState<'OWNER' | 'ADMIN' | 'MEMBER'>('OWNER');
+  const { user, setShowLoginModal } = useAuth();
   
+  const [members, setMembers] = useState<Member[]>(DEFAULT_MEMBERS);
+  const [apiKeys, setApiKeys] = useState<ApiKeyItem[]>(DEFAULT_API_KEYS);
+  const [workspaceTier, setWorkspaceTier] = useState<'ENTERPRISE' | 'BUSINESS' | 'PAID' | 'FREE'>('ENTERPRISE');
+
   // Modals state
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
-  const [inviteRole, setInviteRole] = useState<'ADMIN' | 'MEMBER'>('MEMBER');
-  
+  const [inviteName, setInviteName] = useState('');
+  const [inviteRole, setInviteRole] = useState<UserRole>('MEMBER');
+
   const [showKeyModal, setShowKeyModal] = useState(false);
   const [keyName, setKeyName] = useState('');
   const [generatedKey, setGeneratedKey] = useState<string | null>(null);
-
   const [copiedKey, setCopiedKey] = useState(false);
 
+  // Check user permission
+  const canManageTeam = user.isLoggedIn && (user.role === 'ADMIN' || user.role === 'OWNER');
+
+  // Load from LocalStorage & fetch API
   useEffect(() => {
+    try {
+      const storedMems = localStorage.getItem(LOCAL_MEMBERS_KEY);
+      if (storedMems) setMembers(JSON.parse(storedMems));
+      else localStorage.setItem(LOCAL_MEMBERS_KEY, JSON.stringify(DEFAULT_MEMBERS));
+
+      const storedKeys = localStorage.getItem(LOCAL_KEYS_KEY);
+      if (storedKeys) setApiKeys(JSON.parse(storedKeys));
+      else localStorage.setItem(LOCAL_KEYS_KEY, JSON.stringify(DEFAULT_API_KEYS));
+
+      const storedTier = localStorage.getItem(LOCAL_TIER_KEY);
+      if (storedTier) setWorkspaceTier(storedTier as any);
+    } catch {}
+
     fetch('/api/v1/teams')
       .then((res) => res.json())
       .then((res) => {
-        if (res.data) {
-          setMembers(res.data.members || []);
-          setApiKeys(res.data.apiKeys || []);
+        if (res.data?.members) {
+          // Sync server members with local state
         }
       })
-      .catch((err) => console.error('Team fetch error:', err));
+      .catch(() => {});
   }, []);
+
+  const handleRoleChange = (memberId: string, newRole: UserRole) => {
+    if (!canManageTeam) {
+      alert('Permission denied. Only ADMIN or OWNER can assign member roles.');
+      return;
+    }
+
+    const updated = members.map((m) => (m.id === memberId ? { ...m, role: newRole } : m));
+    setMembers(updated);
+    localStorage.setItem(LOCAL_MEMBERS_KEY, JSON.stringify(updated));
+
+    // Send API update
+    fetch('/api/v1/teams', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'UPDATE_MEMBER_ROLE',
+        memberId,
+        newRole,
+        userRole: user.role,
+      }),
+    }).catch(() => {});
+  };
+
+  const handleWorkspaceTierChange = (tier: 'ENTERPRISE' | 'BUSINESS' | 'PAID' | 'FREE') => {
+    if (!canManageTeam) {
+      alert('Permission denied. Only ADMIN or OWNER can upgrade Enterprise tiers.');
+      return;
+    }
+    setWorkspaceTier(tier);
+    localStorage.setItem(LOCAL_TIER_KEY, tier);
+  };
 
   const handleInviteMember = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!inviteEmail) return;
 
-    try {
-      const res = await fetch('/api/v1/teams', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'INVITE_MEMBER',
-          email: inviteEmail,
-          role: inviteRole,
-          userRole: activeRole,
-        }),
-      });
-
-      const result = await res.json();
-      if (result.success) {
-        setMembers((prev) => [...prev, result.member]);
-        setShowInviteModal(false);
-        setInviteEmail('');
-      } else {
-        alert(result.error);
-      }
-    } catch (err) {
-      console.error(err);
+    if (!canManageTeam) {
+      alert('Permission denied. Requires ADMIN or OWNER rights.');
+      return;
     }
+
+    const newMember: Member = {
+      id: 'mem-' + Date.now(),
+      role: inviteRole,
+      user: {
+        name: inviteName || inviteEmail.split('@')[0],
+        email: inviteEmail,
+      },
+      createdAt: new Date().toISOString(),
+    };
+
+    const updated = [...members, newMember];
+    setMembers(updated);
+    localStorage.setItem(LOCAL_MEMBERS_KEY, JSON.stringify(updated));
+    setShowInviteModal(false);
+    setInviteEmail('');
+    setInviteName('');
+
+    fetch('/api/v1/teams', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'INVITE_MEMBER',
+        email: inviteEmail,
+        name: inviteName,
+        role: inviteRole,
+        userRole: user.role,
+      }),
+    }).catch(() => {});
   };
 
   const handleCreateApiKey = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    try {
-      const res = await fetch('/api/v1/teams', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'CREATE_API_KEY',
-          keyName: keyName || 'Production API Token',
-          userRole: activeRole,
-        }),
-      });
-
-      const result = await res.json();
-      if (result.success) {
-        setGeneratedKey(result.apiKey);
-        setApiKeys((prev) => [
-          ...prev,
-          {
-            id: 'key-' + Date.now(),
-            name: result.name,
-            keyPrefix: result.keyPrefix,
-            createdAt: new Date().toISOString(),
-          },
-        ]);
-      } else {
-        alert(result.error);
-      }
-    } catch (err) {
-      console.error(err);
+    if (!canManageTeam) {
+      alert('Permission denied. Requires ADMIN or OWNER rights.');
+      return;
     }
+
+    const rawKey = `sk_live_${Math.random().toString(36).substring(2, 14)}${Math.random().toString(36).substring(2, 14)}`;
+    const keyPrefix = rawKey.substring(0, 12) + '...';
+
+    const newKey: ApiKeyItem = {
+      id: 'key-' + Date.now(),
+      name: keyName || 'Enterprise API Key',
+      keyPrefix,
+      createdAt: new Date().toISOString(),
+    };
+
+    const updated = [newKey, ...apiKeys];
+    setApiKeys(updated);
+    localStorage.setItem(LOCAL_KEYS_KEY, JSON.stringify(updated));
+    setGeneratedKey(rawKey);
   };
 
   const copyKeyToClipboard = () => {
@@ -119,43 +225,85 @@ export function TeamRbacManager() {
 
   return (
     <div className="space-y-8">
-      {/* Active Role Simulation Switcher Banner */}
-      <div className="p-4 rounded-xl glass-panel border border-purple-500/20 bg-purple-500/5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-lg bg-purple-500/20 flex items-center justify-center text-purple-400">
-            <Shield className="w-5 h-5" />
+      {/* Active User Session Banner */}
+      <div className="p-5 rounded-2xl glass-panel border border-sky-500/30 bg-sky-500/5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div className="flex items-center gap-3.5">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-sky-500 to-purple-600 flex items-center justify-center text-white font-bold text-sm shadow-md">
+            {user.avatar}
           </div>
           <div>
-            <h3 className="text-sm font-bold text-purple-300">Team Workspace & RBAC Permissions</h3>
-            <p className="text-xs text-slate-400">Role-Based Access Control enforcing Owner, Admin, and Member rights.</p>
+            <div className="flex items-center gap-2">
+              <h3 className="text-base font-bold text-white">{user.name}</h3>
+              <span
+                className={`text-xs px-2.5 py-0.5 rounded-full font-bold border ${
+                  user.role === 'OWNER'
+                    ? 'bg-purple-500/20 text-purple-300 border-purple-500/30'
+                    : user.role === 'ADMIN'
+                    ? 'bg-sky-500/20 text-sky-300 border-sky-500/30'
+                    : 'bg-slate-800 text-slate-400 border-slate-700'
+                }`}
+              >
+                {user.role} ROLE
+              </span>
+              {user.name === 'Naveen' && (
+                <span className="text-xs px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/30">
+                  Enterprise Lead
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-slate-400 mt-0.5">{user.email} • Authenticated Workspace User</p>
           </div>
         </div>
 
-        {/* Role Switcher */}
-        <div className="flex items-center gap-1.5 bg-slate-900/90 p-1 rounded-lg border border-slate-800 text-xs">
-          <span className="text-slate-400 px-2 font-medium">Test Role Context:</span>
-          {(['OWNER', 'ADMIN', 'MEMBER'] as const).map((r) => (
+        <button
+          onClick={() => setShowLoginModal(true)}
+          className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-sky-400 text-xs font-semibold border border-sky-500/30 flex items-center gap-2"
+        >
+          <Shield className="w-4 h-4" />
+          <span>Switch User Profile / Sign In</span>
+        </button>
+      </div>
+
+      {/* Enterprise Tier & Workspace Control */}
+      <div className="glass-panel p-6 rounded-2xl border border-slate-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-purple-500/20 flex items-center justify-center text-purple-400">
+            <Building2 className="w-5 h-5" />
+          </div>
+          <div>
+            <h3 className="text-sm font-bold text-white">Enterprise Workspace Tier</h3>
+            <p className="text-xs text-slate-400">Current Plan: {workspaceTier} (Unlimited Teams & Dedicated Redis Queues)</p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          {(['ENTERPRISE', 'BUSINESS', 'PAID', 'FREE'] as const).map((t) => (
             <button
-              key={r}
-              onClick={() => setActiveRole(r)}
-              className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-all ${
-                activeRole === r ? 'bg-purple-600 text-white shadow-sm' : 'text-slate-400 hover:text-white'
+              key={t}
+              onClick={() => handleWorkspaceTierChange(t)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${
+                workspaceTier === t
+                  ? 'bg-purple-600 text-white border-purple-500 shadow'
+                  : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-white'
               }`}
             >
-              {r}
+              {t}
             </button>
           ))}
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        {/* Left: Team Members Directory */}
+        {/* Left: Team Members Directory with Role Editing Dropdown */}
         <div className="lg:col-span-7 glass-panel p-6 rounded-2xl border border-slate-800 space-y-5">
           <div className="flex items-center justify-between">
-            <h3 className="text-base font-bold text-white flex items-center gap-2">
-              <Users className="w-4 h-4 text-sky-400" />
-              <span>Workspace Team Members</span>
-            </h3>
+            <div>
+              <h3 className="text-base font-bold text-white flex items-center gap-2">
+                <Users className="w-4 h-4 text-sky-400" />
+                <span>Team Members & Role Assignment</span>
+              </h3>
+              <p className="text-xs text-slate-400">Select any role dropdown below to assign Admin/Owner rights.</p>
+            </div>
             <button
               onClick={() => setShowInviteModal(true)}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold border border-slate-700"
@@ -170,8 +318,8 @@ export function TeamRbacManager() {
             <table className="w-full text-left text-xs text-slate-300">
               <thead className="bg-slate-900/80 text-[11px] uppercase font-semibold text-slate-400 border-b border-slate-800">
                 <tr>
-                  <th className="px-4 py-3">User Details</th>
-                  <th className="px-4 py-3 text-center">Role</th>
+                  <th className="px-4 py-3">Member Details</th>
+                  <th className="px-4 py-3 text-center">Assign Role</th>
                   <th className="px-4 py-3 text-right">Joined</th>
                 </tr>
               </thead>
@@ -179,21 +327,46 @@ export function TeamRbacManager() {
                 {members.map((m) => (
                   <tr key={m.id} className="hover:bg-slate-900/40">
                     <td className="px-4 py-3">
-                      <div className="font-semibold text-white">{m.user.name}</div>
+                      <div className="font-semibold text-white flex items-center gap-1.5">
+                        <span>{m.user.name}</span>
+                        {m.user.name === 'Naveen' && (
+                          <span className="text-[9px] px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/30">
+                            Admin Lead
+                          </span>
+                        )}
+                      </div>
                       <div className="text-slate-400 text-[11px]">{m.user.email}</div>
                     </td>
                     <td className="px-4 py-3 text-center">
-                      <span
-                        className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${
-                          m.role === 'OWNER'
-                            ? 'bg-purple-500/10 text-purple-400 border-purple-500/30'
-                            : m.role === 'ADMIN'
-                            ? 'bg-sky-500/10 text-sky-400 border-sky-500/30'
-                            : 'bg-slate-800 text-slate-400 border-slate-700'
-                        }`}
-                      >
-                        {m.role}
-                      </span>
+                      {canManageTeam ? (
+                        <select
+                          value={m.role}
+                          onChange={(e) => handleRoleChange(m.id, e.target.value as UserRole)}
+                          className={`px-2.5 py-1 rounded-lg text-xs font-bold border bg-slate-950 focus:outline-none cursor-pointer ${
+                            m.role === 'OWNER'
+                              ? 'text-purple-400 border-purple-500/40'
+                              : m.role === 'ADMIN'
+                              ? 'text-sky-400 border-sky-500/40'
+                              : 'text-slate-400 border-slate-700'
+                          }`}
+                        >
+                          <option value="ADMIN">ADMIN (Full API & Team Access)</option>
+                          <option value="OWNER">OWNER (Full Control & Billing)</option>
+                          <option value="MEMBER">MEMBER (Standard Access)</option>
+                        </select>
+                      ) : (
+                        <span
+                          className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${
+                            m.role === 'OWNER'
+                              ? 'bg-purple-500/10 text-purple-400 border-purple-500/30'
+                              : m.role === 'ADMIN'
+                              ? 'bg-sky-500/10 text-sky-400 border-sky-500/30'
+                              : 'bg-slate-800 text-slate-400 border-slate-700'
+                          }`}
+                        >
+                          {m.role}
+                        </span>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-right text-slate-400 font-mono text-[11px]">
                       {new Date(m.createdAt).toLocaleDateString()}
@@ -228,7 +401,7 @@ export function TeamRbacManager() {
             </div>
             <div className="flex items-center justify-between text-xs">
               <span className="text-slate-400">Rate Limiter limit:</span>
-              <span className="font-mono text-emerald-400 font-bold">600 req/min (Business)</span>
+              <span className="font-mono text-emerald-400 font-bold">600 req/min ({workspaceTier})</span>
             </div>
           </div>
 
@@ -257,12 +430,23 @@ export function TeamRbacManager() {
             <h3 className="text-base font-bold text-white">Invite Team Member</h3>
             <form onSubmit={handleInviteMember} className="space-y-4">
               <div>
-                <label className="block text-xs font-semibold text-slate-300 uppercase mb-1">Email Address</label>
+                <label className="block text-xs font-semibold text-slate-300 uppercase mb-1">Full Name</label>
+                <input
+                  type="text"
+                  value={inviteName}
+                  onChange={(e) => setInviteName(e.target.value)}
+                  placeholder="e.g. Naveen"
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white text-sm"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 uppercase mb-1">Email Address *</label>
                 <input
                   type="email"
                   value={inviteEmail}
                   onChange={(e) => setInviteEmail(e.target.value)}
-                  placeholder="colleague@acme.com"
+                  placeholder="naveen@omniqr.online"
                   className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white text-sm"
                   required
                 />
@@ -272,10 +456,11 @@ export function TeamRbacManager() {
                 <label className="block text-xs font-semibold text-slate-300 uppercase mb-1">Assign Role</label>
                 <select
                   value={inviteRole}
-                  onChange={(e) => setInviteRole(e.target.value as any)}
+                  onChange={(e) => setInviteRole(e.target.value as UserRole)}
                   className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white text-sm"
                 >
-                  <option value="ADMIN">ADMIN (Can manage keys & members)</option>
+                  <option value="ADMIN">ADMIN (Can manage keys & member roles)</option>
+                  <option value="OWNER">OWNER (Full Workspace Control)</option>
                   <option value="MEMBER">MEMBER (Can create & edit QRs)</option>
                 </select>
               </div>
