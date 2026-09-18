@@ -20,6 +20,10 @@ interface AuthContextType {
   switchRole: (newRole: UserRole) => void;
   showLoginModal: boolean;
   setShowLoginModal: (show: boolean) => void;
+  showSignupModal: boolean;
+  setShowSignupModal: (show: boolean) => void;
+  showCreateTeamModal: boolean;
+  setShowCreateTeamModal: (show: boolean) => void;
 }
 
 // Preset Users for quick switching / testing
@@ -59,6 +63,10 @@ const AuthContext = createContext<AuthContextType>({
   switchRole: () => {},
   showLoginModal: false,
   setShowLoginModal: () => {},
+  showSignupModal: false,
+  setShowSignupModal: () => {},
+  showCreateTeamModal: false,
+  setShowCreateTeamModal: () => {},
 });
 
 const AUTH_STORAGE_KEY = 'omni_auth_user_v1';
@@ -66,6 +74,8 @@ const AUTH_STORAGE_KEY = 'omni_auth_user_v1';
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser>(defaultUser);
   const [showLoginModal, setShowLoginModal] = useState(false);
+  const [showSignupModal, setShowSignupModal] = useState(false);
+  const [showCreateTeamModal, setShowCreateTeamModal] = useState(false);
 
   // Initialize from LocalStorage
   useEffect(() => {
@@ -93,6 +103,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(updated);
     localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(updated));
     setShowLoginModal(false);
+    setShowSignupModal(false);
   };
 
   const logout = () => {
@@ -119,6 +130,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         switchRole,
         showLoginModal,
         setShowLoginModal,
+        showSignupModal,
+        setShowSignupModal,
+        showCreateTeamModal,
+        setShowCreateTeamModal,
       }}
     >
       {children}

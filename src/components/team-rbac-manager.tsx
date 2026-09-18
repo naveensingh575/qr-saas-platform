@@ -75,7 +75,7 @@ const LOCAL_KEYS_KEY = 'omni_api_keys_v2';
 const LOCAL_TIER_KEY = 'omni_workspace_tier_v2';
 
 export function TeamRbacManager() {
-  const { user, setShowLoginModal } = useAuth();
+  const { user, setShowLoginModal, setShowCreateTeamModal } = useAuth();
   
   const [members, setMembers] = useState<Member[]>(DEFAULT_MEMBERS);
   const [apiKeys, setApiKeys] = useState<ApiKeyItem[]>(DEFAULT_API_KEYS);
@@ -276,7 +276,7 @@ export function TeamRbacManager() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {(['ENTERPRISE', 'BUSINESS', 'PAID', 'FREE'] as const).map((t) => (
             <button
               key={t}
@@ -290,6 +290,13 @@ export function TeamRbacManager() {
               {t}
             </button>
           ))}
+          <button
+            onClick={() => setShowCreateTeamModal(true)}
+            className="px-3.5 py-1.5 rounded-lg gradient-button text-white text-xs font-bold flex items-center gap-1.5 shadow-md ml-2"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>Create Enterprise Team</span>
+          </button>
         </div>
       </div>
 

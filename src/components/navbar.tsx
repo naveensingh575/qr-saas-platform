@@ -8,7 +8,7 @@ import { QrCode, Zap, Users, FileSpreadsheet, Sparkles, LogIn, UserCheck, Shield
 
 export function Navbar() {
   const pathname = usePathname();
-  const { user, setShowLoginModal } = useAuth();
+  const { user, setShowLoginModal, setShowSignupModal } = useAuth();
   const [currentTier, setCurrentTier] = useState<'FREE' | 'PAID' | 'BUSINESS'>('BUSINESS');
 
   const navLinks = [
@@ -121,13 +121,22 @@ export function Navbar() {
                 </div>
               </button>
             ) : (
-              <button
-                onClick={() => setShowLoginModal(true)}
-                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl gradient-button text-white font-semibold text-xs shadow-md"
-              >
-                <LogIn className="w-3.5 h-3.5" />
-                <span>Sign In</span>
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setShowLoginModal(true)}
+                  className="px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white font-medium text-xs border border-slate-700/80 transition-all flex items-center gap-1.5"
+                >
+                  <LogIn className="w-3.5 h-3.5" />
+                  <span>Sign In</span>
+                </button>
+                <button
+                  onClick={() => setShowSignupModal(true)}
+                  className="px-3.5 py-1.5 rounded-xl gradient-button text-white font-semibold text-xs shadow-md flex items-center gap-1.5"
+                >
+                  <UserCheck className="w-3.5 h-3.5" />
+                  <span>Sign Up</span>
+                </button>
+              </div>
             )}
           </div>
         </div>

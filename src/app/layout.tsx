@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import './globals.css';
 import { Navbar } from '@/components/navbar';
 import { AuthProvider } from '@/lib/auth-context';
-import { LoginModal } from '@/components/login-modal';
+import { GlobalModals } from '@/components/global-modals';
 
 export const metadata: Metadata = {
   title: 'OmniQR - Multi-Tenant Production QR SaaS Platform',
@@ -21,7 +21,7 @@ export default function RootLayout({
         <AuthProvider>
           <Navbar />
           <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">{children}</main>
-          <LoginModal />
+          <GlobalModals />
         </AuthProvider>
       </body>
     </html>
