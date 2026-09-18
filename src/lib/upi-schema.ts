@@ -25,6 +25,9 @@ export interface UpiSplitResultItem {
   uri: string;
 }
 
+// 1 Crore = 10,000,000 INR (10 Million / 1 Crore max cap)
+export const MAX_UPI_AMOUNT_CRORE = 10000000;
+
 /**
  * Builds standard NPCI compliant UPI Payment URI string
  * Format: upi://pay?pa=address@bank&pn=PayeeName&am=100.00&cu=INR&tn=Note
@@ -39,8 +42,13 @@ export function buildUpiUri(params: UpiPaymentConfig): string {
   queryParams.append('pn', (params.pn || 'Payee').trim());
   
   if (params.am !== undefined && params.am !== '') {
-    const numericAmt = typeof params.am === 'number' ? params.am : parseFloat(params.am);
-    const formattedAmt = isNaN(numericAmt) ? '0.00' : numericAmt.toFixed(2);
+    let numericAmt = typeof params.am === 'number' ? params.am : parseFloat(params.am);
+    if (isNaN(numericAmt)) numericAmt = 0;
+    // Cap at 1 Crore (10,000,000 INR)
+    if (numericAmt > MAX_UPI_AMOUNT_CRORE) {
+      numericAmt = MAX_UPI_AMOUNT_CRORE;
+    }
+    const formattedAmt = numericAmt.toFixed(2);
     queryParams.append('am', formattedAmt);
   }
   
@@ -63,14 +71,20 @@ export function buildUpiUri(params: UpiPaymentConfig): string {
 
 /**
  * Calculates NPCI-compliant UPI URI splits for amounts above ₹2,000
+ * Capped at 1 Crore (10,000,000 INR)
  */
 export function calculateUpiSplits(
   baseConfig: UpiPaymentConfig,
   splitConfig: UpiSplitOption
 ): UpiSplitResultItem[] {
-  const totalAmount = typeof splitConfig.totalAmount === 'number' ? splitConfig.totalAmount : parseFloat(splitConfig.totalAmount || '0');
+  let totalAmount = typeof splitConfig.totalAmount === 'number' ? splitConfig.totalAmount : parseFloat(splitConfig.totalAmount || '0');
 
   if (!totalAmount || totalAmount <= 0) return [];
+
+  // Enforce 1 Crore Cap
+  if (totalAmount > MAX_UPI_AMOUNT_CRORE) {
+    totalAmount = MAX_UPI_AMOUNT_CRORE;
+  }
 
   let partsAmounts: number[] = [];
   const { splitMode, numberOfSplits = 2, maxCapPerQr = 1999 } = splitConfig;

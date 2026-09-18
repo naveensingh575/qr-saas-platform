@@ -348,11 +348,27 @@ export function StaticQrBuilder() {
                         <input
                           type="number"
                           step="0.01"
+                          max="10000000"
                           value={upiData.am}
-                          onChange={(e) => setUpiData({ ...upiData, am: e.target.value })}
+                          onChange={(e) => {
+                            const val = parseFloat(e.target.value);
+                            if (val > 10000000) {
+                              setUpiData({ ...upiData, am: '10000000' });
+                            } else {
+                              setUpiData({ ...upiData, am: e.target.value });
+                            }
+                          }}
                           placeholder="5000.00"
                           className="w-full px-3.5 py-2 rounded-lg bg-slate-950 border border-slate-700 text-emerald-400 font-mono font-bold text-sm focus:border-emerald-500"
                         />
+                        <p className="text-[10px] text-slate-400 mt-1 flex items-center gap-1 font-mono">
+                          <span>Max Limit: ₹1,00,00,000 (1 Crore INR)</span>
+                          {parseFloat(upiData.am) >= 10000000 && (
+                            <span className="text-amber-400 font-bold px-1.5 py-0.2 rounded bg-amber-500/10 border border-amber-500/20">
+                              Capped at 1 Crore
+                            </span>
+                          )}
+                        </p>
                       </div>
                       <div>
                         <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">
@@ -506,11 +522,20 @@ export function StaticQrBuilder() {
                       <input
                         type="number"
                         step="0.01"
+                        max="10000000"
                         value={upiData.am}
-                        onChange={(e) => setUpiData({ ...upiData, am: e.target.value })}
+                        onChange={(e) => {
+                          const val = parseFloat(e.target.value);
+                          if (val > 10000000) {
+                            setUpiData({ ...upiData, am: '10000000' });
+                          } else {
+                            setUpiData({ ...upiData, am: e.target.value });
+                          }
+                        }}
                         placeholder="250.00"
                         className="w-full px-3.5 py-2.5 rounded-lg bg-slate-950 border border-slate-700 text-white text-sm font-mono focus:border-emerald-500"
                       />
+                      <p className="text-[10px] text-slate-400 mt-1 font-mono">Max limit: ₹1,00,00,000 (1 Crore INR)</p>
                     </div>
                     <div>
                       <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">
