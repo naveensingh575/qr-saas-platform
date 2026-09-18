@@ -12,34 +12,7 @@ export interface QrRecordItem {
   updatedAt: string;
 }
 
-const initialDemoItems: QrRecordItem[] = [
-  {
-    id: 'qr-demo-1',
-    teamId: 'team-demo',
-    shortCode: 'paid-demo',
-    title: 'E-Commerce Summer Campaign',
-    type: 'DYNAMIC',
-    destinationUrl: 'https://store.example.com/summer-sale',
-    logoUrl: 'https://api.iconify.design/lucide:shopping-bag.svg',
-    isActive: true,
-    scansCount: 1420,
-    createdAt: new Date(Date.now() - 86400000 * 2).toISOString(),
-    updatedAt: new Date(Date.now() - 86400000 * 2).toISOString(),
-  },
-  {
-    id: 'qr-demo-2',
-    teamId: 'team-demo',
-    shortCode: 'app-dl',
-    title: 'Mobile App Download Link',
-    type: 'DYNAMIC',
-    destinationUrl: 'https://example.com/download-app',
-    logoUrl: null,
-    isActive: true,
-    scansCount: 890,
-    createdAt: new Date(Date.now() - 86400000 * 5).toISOString(),
-    updatedAt: new Date(Date.now() - 86400000 * 5).toISOString(),
-  },
-];
+const initialDemoItems: QrRecordItem[] = [];
 
 const globalForStore = globalThis as unknown as {
   memoryQrStore: QrRecordItem[] | undefined;

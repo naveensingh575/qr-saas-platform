@@ -98,38 +98,7 @@ async function main() {
 
   console.log('✅ Created/Verified API Key:', apiKey.name);
 
-  // 5. Create Default Dynamic QRs
-  const qr1 = await prisma.qrCode.upsert({
-    where: { shortCode: 'paid-demo' },
-    update: { destinationUrl: 'https://store.example.com/summer-sale' },
-    create: {
-      teamId: team.id,
-      shortCode: 'paid-demo',
-      title: 'E-Commerce Summer Campaign',
-      type: 'DYNAMIC',
-      destinationUrl: 'https://store.example.com/summer-sale',
-      logoUrl: 'https://api.iconify.design/lucide:shopping-bag.svg',
-      isActive: true,
-      scansCount: 1420,
-    },
-  });
-
-  const qr2 = await prisma.qrCode.upsert({
-    where: { shortCode: 'app-dl' },
-    update: { destinationUrl: 'https://example.com/download-app' },
-    create: {
-      teamId: team.id,
-      shortCode: 'app-dl',
-      title: 'Mobile App Download Link',
-      type: 'DYNAMIC',
-      destinationUrl: 'https://example.com/download-app',
-      logoUrl: null,
-      isActive: true,
-      scansCount: 890,
-    },
-  });
-
-  console.log('✅ Seeded Dynamic QRs:', qr1.shortCode, qr2.shortCode);
+  console.log('✅ Created/Verified API Key:', apiKey.name);
 
   console.log('🎉 Database seeding complete!');
 }

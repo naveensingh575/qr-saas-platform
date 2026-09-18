@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Zap, Plus, ExternalLink, Edit3, Check, X, ShieldAlert, Sparkles, RefreshCw, Eye, Copy, Trash2 } from 'lucide-react';
+import { Zap, Plus, ExternalLink, Edit3, Check, X, ShieldAlert, Sparkles, RefreshCw, Eye, Copy, Trash2, UserPlus, LogIn, Lock } from 'lucide-react';
+import { useAuth } from '@/lib/auth-context';
 import {
   getStoredQrItems,
   saveStoredQrItems,
@@ -13,6 +14,7 @@ import {
 } from '@/lib/client-storage';
 
 export function DynamicQrTable() {
+  const { user, setShowSignupModal, setShowLoginModal } = useAuth();
   const [qrItems, setQrItems] = useState<QrItemStorage[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -206,6 +208,39 @@ export function DynamicQrTable() {
 
   return (
     <div className="space-y-6">
+      {/* Unauthenticated Gate Banner */}
+      {!user.isLoggedIn && (
+        <div className="p-6 rounded-2xl glass-panel border border-amber-500/30 bg-amber-500/5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-amber-500/20 flex items-center justify-center text-amber-400">
+              <Lock className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-white">Authentication Required for Dynamic QRs</h3>
+              <p className="text-xs text-slate-400">
+                Sign up or sign in to create your enterprise team workspace and manage private dynamic QRs.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowLoginModal(true)}
+              className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 text-xs font-semibold border border-slate-700 flex items-center gap-1.5"
+            >
+              <LogIn className="w-3.5 h-3.5" />
+              <span>Sign In</span>
+            </button>
+            <button
+              onClick={() => setShowSignupModal(true)}
+              className="px-4 py-2 rounded-xl gradient-button text-white text-xs font-semibold shadow-md flex items-center gap-1.5"
+            >
+              <UserPlus className="w-3.5 h-3.5" />
+              <span>Create Account</span>
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Action Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
@@ -219,7 +254,13 @@ export function DynamicQrTable() {
         </div>
 
         <button
-          onClick={() => setShowCreateModal(true)}
+          onClick={() => {
+            if (!user.isLoggedIn) {
+              setShowSignupModal(true);
+            } else {
+              setShowCreateModal(true);
+            }
+          }}
           className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl gradient-button text-white text-sm font-semibold shadow-lg"
         >
           <Plus className="w-4 h-4" />

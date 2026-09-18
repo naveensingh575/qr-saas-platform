@@ -26,45 +26,23 @@ export interface ScanLog {
 const STORAGE_KEY_QRS = 'omni_qr_codes_v1';
 const STORAGE_KEY_SCANS = 'omni_qr_scan_logs_v1';
 
-const defaultDemoQrs: QrItemStorage[] = [
-  {
-    id: 'qr-demo-1',
-    shortCode: 'paid-demo',
-    title: 'E-Commerce Summer Campaign',
-    destinationUrl: 'https://store.example.com/summer-sale',
-    logoUrl: 'https://api.iconify.design/lucide:shopping-bag.svg',
-    isActive: true,
-    scansCount: 1420,
-    createdAt: new Date(Date.now() - 86400000 * 2).toISOString(),
-  },
-  {
-    id: 'qr-demo-2',
-    shortCode: 'app-dl',
-    title: 'Mobile App Download Link',
-    destinationUrl: 'https://example.com/download-app',
-    logoUrl: null,
-    isActive: true,
-    scansCount: 890,
-    createdAt: new Date(Date.now() - 86400000 * 5).toISOString(),
-  },
-];
+const defaultDemoQrs: QrItemStorage[] = [];
 
 /**
  * Retrieves QR items from LocalStorage with fallback to demo items
  */
 export function getStoredQrItems(): QrItemStorage[] {
-  if (typeof window === 'undefined') return defaultDemoQrs;
+  if (typeof window === 'undefined') return [];
 
   try {
     const raw = localStorage.getItem(STORAGE_KEY_QRS);
     if (!raw) {
-      localStorage.setItem(STORAGE_KEY_QRS, JSON.stringify(defaultDemoQrs));
-      return defaultDemoQrs;
+      return [];
     }
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : defaultDemoQrs;
+    return Array.isArray(parsed) ? parsed : [];
   } catch {
-    return defaultDemoQrs;
+    return [];
   }
 }
 

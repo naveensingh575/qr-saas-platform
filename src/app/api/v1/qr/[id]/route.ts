@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { redis } from '@/lib/redis';
 import { updateMemoryQr, deleteMemoryQr, memoryQrStore } from '@/lib/memory-store';
+import { verifySessionToken } from '@/lib/auth';
 
 export const runtime = 'nodejs';
 
@@ -11,12 +12,20 @@ interface RouteParams {
   };
 }
 
+function getSessionPayload(request: NextRequest) {
+  const token =
+    request.cookies.get('omni_session_token')?.value ||
+    request.headers.get('authorization')?.replace('Bearer ', '');
+  if (!token) return null;
+  return verifySessionToken(token);
+}
+
 /**
  * PATCH /api/v1/qr/[id] - Update destination URL or toggle active status
- * DELETE /api/v1/qr/[id] - Remove QR code
  */
 export async function PATCH(request: NextRequest, { params }: RouteParams) {
   const qrId = params.id;
+  const session = getSessionPayload(request);
 
   try {
     const body = await request.json();
@@ -25,20 +34,16 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     let updatedRecord: any = null;
     let shortCode = '';
 
-    // Update in-memory store
-    const memMatch = memoryQrStore.find((i) => i.id === qrId);
-    if (memMatch) {
-      shortCode = memMatch.shortCode;
-      updatedRecord = updateMemoryQr(qrId, {
-        ...(destinationUrl !== undefined && { destinationUrl }),
-        ...(isActive !== undefined && { isActive }),
-        ...(title !== undefined && { title }),
-      });
-    }
-
     try {
       const existing = await prisma.qrCode.findUnique({ where: { id: qrId } });
       if (existing) {
+        if (session && session.teamId && existing.teamId !== session.teamId) {
+          return NextResponse.json(
+            { error: 'Forbidden. You do not have permission to modify this team’s QR code.' },
+            { status: 403 }
+          );
+        }
+
         shortCode = existing.shortCode;
         const dbUpdated = await prisma.qrCode.update({
           where: { id: qrId },
@@ -52,15 +57,25 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       }
     } catch {}
 
+    // In-memory update
+    const memMatch = memoryQrStore.find((i) => i.id === qrId);
+    if (memMatch) {
+      if (session && session.teamId && memMatch.teamId !== session.teamId) {
+        return NextResponse.json(
+          { error: 'Forbidden. You do not have permission to modify this team’s QR code.' },
+          { status: 403 }
+        );
+      }
+      shortCode = memMatch.shortCode;
+      updatedRecord = updateMemoryQr(qrId, {
+        ...(destinationUrl !== undefined && { destinationUrl }),
+        ...(isActive !== undefined && { isActive }),
+        ...(title !== undefined && { title }),
+      });
+    }
+
     if (!updatedRecord) {
-      // Fallback update
-      updatedRecord = {
-        id: qrId,
-        shortCode: shortCode || 'paid-demo',
-        title: title || 'Updated Dynamic QR',
-        destinationUrl: destinationUrl || 'https://example.com',
-        isActive: isActive !== undefined ? isActive : true,
-      };
+      return NextResponse.json({ error: 'Dynamic QR code not found.' }, { status: 404 });
     }
 
     if (shortCode) {
@@ -89,17 +104,24 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
 
 export async function DELETE(request: NextRequest, { params }: RouteParams) {
   const qrId = params.id;
+  const session = getSessionPayload(request);
 
   try {
-    deleteMemoryQr(qrId);
-
     try {
       const existing = await prisma.qrCode.findUnique({ where: { id: qrId } });
       if (existing) {
+        if (session && session.teamId && existing.teamId !== session.teamId) {
+          return NextResponse.json(
+            { error: 'Forbidden. You do not have permission to delete this team’s QR code.' },
+            { status: 403 }
+          );
+        }
         await redis.del(`qr:code:${existing.shortCode}`);
         await prisma.qrCode.delete({ where: { id: qrId } });
       }
     } catch {}
+
+    deleteMemoryQr(qrId);
 
     return NextResponse.json({ success: true, message: 'QR Code deleted.' });
   } catch (error: any) {

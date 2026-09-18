@@ -4,12 +4,23 @@ import { redis } from '@/lib/redis';
 import { checkRateLimit } from '@/lib/rate-limiter';
 import { generateDynamicQrSvg } from '@/lib/qr-generator';
 import { memoryQrStore, addMemoryQr, QrRecordItem } from '@/lib/memory-store';
+import { verifySessionToken } from '@/lib/auth';
 
 export const runtime = 'nodejs';
 
 /**
- * GET /api/v1/qr - List all QR codes for a team
- * POST /api/v1/qr - Create a new Dynamic QR code with optional logo overlay
+ * Helper to extract session payload from request cookie or auth header
+ */
+function getSessionPayload(request: NextRequest) {
+  const token =
+    request.cookies.get('omni_session_token')?.value ||
+    request.headers.get('authorization')?.replace('Bearer ', '');
+  if (!token) return null;
+  return verifySessionToken(token);
+}
+
+/**
+ * GET /api/v1/qr - List dynamic QRs partitioned for the authenticated user's team
  */
 export async function GET(request: NextRequest) {
   const apiKey = request.headers.get('x-api-key') || 'default_demo_key';
@@ -23,29 +34,41 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  try {
-    const qrCodes = await prisma.qrCode.findMany({
-      orderBy: { createdAt: 'desc' },
-      take: 50,
-    });
+  const session = getSessionPayload(request);
+  const teamId = session?.teamId;
 
-    if (qrCodes && qrCodes.length > 0) {
-      return NextResponse.json({
-        data: qrCodes,
-        rateLimit: { remaining: rateLimit.remaining, limit: rateLimit.limit },
-      });
-    }
-  } catch (error) {
-    console.warn('[API /api/v1/qr GET] Using fallback memory store:', error);
+  if (!teamId) {
+    // Unauthenticated user - return empty data partition
+    return NextResponse.json({
+      data: [],
+      rateLimit: { remaining: rateLimit.remaining, limit: rateLimit.limit },
+    });
   }
 
-  // Fallback to memory store if DB is unpopulated or offline
-  return NextResponse.json({
-    data: memoryQrStore,
-    rateLimit: { remaining: rateLimit.remaining, limit: rateLimit.limit },
-  });
+  try {
+    const qrCodes = await prisma.qrCode.findMany({
+      where: { teamId },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+    });
+
+    return NextResponse.json({
+      data: qrCodes || [],
+      rateLimit: { remaining: rateLimit.remaining, limit: rateLimit.limit },
+    });
+  } catch (error) {
+    console.warn('[API /api/v1/qr GET] Using fallback memory store:', error);
+    const userMems = memoryQrStore.filter((i) => i.teamId === teamId);
+    return NextResponse.json({
+      data: userMems,
+      rateLimit: { remaining: rateLimit.remaining, limit: rateLimit.limit },
+    });
+  }
 }
 
+/**
+ * POST /api/v1/qr - Create a new Dynamic QR code for the authenticated team
+ */
 export async function POST(request: NextRequest) {
   const apiKey = request.headers.get('x-api-key') || 'default_demo_key';
   const rateLimit = await checkRateLimit(apiKey, 60, 60);
@@ -54,6 +77,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       { error: 'Rate limit exceeded.' },
       { status: 429 }
+    );
+  }
+
+  const session = getSessionPayload(request);
+  if (!session || !session.teamId) {
+    return NextResponse.json(
+      { error: 'Authentication required. Please sign in to create dynamic QRs for your workspace.' },
+      { status: 401 }
     );
   }
 
@@ -79,7 +110,7 @@ export async function POST(request: NextRequest) {
     const now = new Date().toISOString();
     let newRecord: QrRecordItem = {
       id: 'qr-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
-      teamId: 'team-demo',
+      teamId: session.teamId,
       shortCode,
       title: title || `Dynamic QR (${shortCode})`,
       type: 'DYNAMIC',
@@ -92,17 +123,9 @@ export async function POST(request: NextRequest) {
     };
 
     try {
-      // Find or create default team in PostgreSQL if connected
-      let team = await prisma.team.findFirst();
-      if (!team) {
-        team = await prisma.team.create({
-          data: { name: 'Acme Enterprise', slug: 'acme-corp', tier: 'BUSINESS' },
-        });
-      }
-
       const dbRecord = await prisma.qrCode.create({
         data: {
-          teamId: team.id,
+          teamId: session.teamId,
           shortCode,
           title: newRecord.title,
           type: 'DYNAMIC',
@@ -119,10 +142,10 @@ export async function POST(request: NextRequest) {
       console.warn('[API /api/v1/qr POST] DB insert fallback to memory store:', dbErr);
     }
 
-    // Persist to in-memory store so it shows up instantly in UI
+    // Persist to memory store
     addMemoryQr(newRecord);
 
-    // Warm Redis / Memory cache for ultra-fast edge redirect
+    // Warm Redis cache for ultra-fast edge redirect
     await redis.set(
       `qr:code:${shortCode}`,
       JSON.stringify({ id: newRecord.id, destinationUrl, isActive: true }),
